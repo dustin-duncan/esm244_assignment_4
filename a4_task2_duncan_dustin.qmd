@@ -1,0 +1,154 @@
+---
+title: "ESM 244 Assignment 4 Task 2"
+author: "Dustin Duncan"
+format: 
+  html:
+    code-fold: true
+    toc: true
+    number-sections: true
+    embed-resources: true
+editor: visual
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+## Overview:
+
+The goal of this analysis was to use hierarchical clustering by complete linkage to create a dendrogram showing multivariate clustering for water chemistry by site in Santa Barbara County streams. The data used for this analysis was the Santa Barbara Coastal LTER (SBC LTER) stream chemistry data, which is ongoing since 2000. The data was obtained from the Environmental Data Initiative (EDI). The data includes measurements of water chemistry parameters such as ammonium, nitrate, phosphate, specific conductance, total dissolved nitrogen, and total dissolved phosphorus.
+
+### Analysis:
+
+We first loaded the SBC LTER stream chemistry data and removed columns with over 50% NA's. We then created histograms of the remaining water chemistry parameters to visualize their distributions on the log scale. We then conducted hierarchical clustering using complete linkage to create a dendrogram showing multivariate clustering for water chemistry by site in Santa Barbara County streams. All pseudocode and steps are included within code chunks.
+
+
+### Citations:
+
+Santa Barbara Coastal LTER and J. Melack. 2019. SBC LTER: Land: Stream chemistry in the Santa Barbara Coastal drainage area, ongoing since 2000 ver 16. Environmental Data Initiative. <https://doi.org/10.6073/pasta/67a558a24ceed9a0a5bf5e46ab841174>.
+
+### Packages Used:
+
+```{r}
+#| message: false
+#| warning: false
+rm(list = ls())
+library(tidyverse)
+library(here)
+library(ggfortify)
+# Packages for cluster analysis:
+library(NbClust)
+library(cluster)
+library(factoextra)
+library(dendextend)
+library(ggdendro)
+```
+
+## Hierarchical Clustering Using Complete Linkage 
+
+### Loading and tidying data
+
+```{r}
+#| message: false
+#| warning: false
+
+# Reading in streams data and converting all -999 and NA values to NA's 
+stream_df <- read_csv(here::here("data", "sbc_lter_registered_stream_chemistry.csv"), na = c("-999", "NA")) 
+
+# Checking the amount of NA's in each column and including here the ones that returned counts of NA's over 50% of the total observations
+# summary(stream_df$tss_mgperLiter) # over 50% NA's: dropping 
+# summary(stream_df$tpn_uM) # over 50% NA's: dropping
+# summary(stream_df$tpc_uM) # over 50% NA's: dropping
+# summary(stream_df$tpp_uM) # over 50% NA's: dropping
+
+# Dropping columns with over 50% NA's as well as timestamp_local 
+stream_df <- stream_df %>% 
+  dplyr::select(-c(timestamp_local, tss_mgperLiter, tpn_uM, tpc_uM, tpp_uM))
+
+```
+
+### Exploratory visualization 
+
+```{r, fig.width=10}
+#| message: false
+#| warning: false
+streams_long <- stream_df %>% 
+  # Pivoting longer to obtain one row of 'names' for each site's water chemistry parameter and its associated value
+  pivot_longer(cols = -c(site_code), names_to = "parameter", values_to = "value") %>%
+  # Ensuring the value for each parameter is numeric
+  mutate(value = as.numeric(value)) %>% 
+  # Renaming parameters to give them more intuitive names for histogram
+  mutate(parameter = case_when(
+    parameter == "nh4_uM" ~ "Ammonium (uM)",
+    parameter == "no3_uM" ~ "Nitrate (uM)",
+    parameter == "po4_uM" ~ "Phosphate (uM)",
+    parameter == "spec_cond_uSpercm" ~ "Specific Conductance (uS/cm)",
+    parameter == "tdn_uM" ~ "Total Dissolved Nitrogen (uM)",
+    parameter == "tdp_uM" ~ "Total Dissolved Phosphorus (uM)"
+  ))
+
+# Creating histograms of the distribution of values for each water quality parameter 
+ggplot(data = streams_long, aes(x = log(value), fill = parameter)) +
+  geom_histogram(color = "black") +
+  labs(title = "Histograms of log-transformed Water Chemistry Parameters", x = "Log-Concentration (uM)", y = "Count", fill = "Parameter") +
+  facet_wrap(~parameter) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(hjust = 1))
+```
+An exploratory histogram showing the log-distributions of water chemistry parameters in each of the sites studied. It appears that each raw parameter is log-normally distributed, indicating that while most streams should have lower concentrations of each, there are likely sites that contain much higher concentrations of either all or some parameters. This will be useful to consider when conducting hierarchical clustering. 
+
+
+## Conducting Hierarchical Clustering 
+
+```{r}
+# Removing NA's to conduct hierarchical clustering
+streams_no_na <- stream_df %>% 
+  drop_na()
+
+# Grouping by site id and summarizing parameter values to complete hierarchical clustering, this is to ensure that each site has one row of parameter means and our dendrogram doesn't have 50 branches
+streams_grouped <- streams_no_na %>% 
+  group_by(site_code) %>% 
+  summarise_all(mean)
+
+# Scaling parameters to ensure that all parameters have a mean of 0 and standard deviation of 1
+streams_scale <- streams_grouped %>% 
+  select(-site_code) %>%
+  scale()
+
+# Adding back in our site code to the scaled data for the dendrogram
+rownames(streams_scale) <- streams_grouped$site_code
+
+# Creating a euclidean distance matrix 
+streams_dist <- dist(streams_scale, method = "euclidean")
+
+# Hierarchical clustering using complete linkage
+streams_hc <- hclust(streams_dist, method = "complete")
+
+# Plotting it to see the dendrogram
+plot(streams_hc, main = "Dendrogram of Santa Barbara County\nStream Water Chemistry", xlab = "Stream Site Code", sub = "Complete Linkage", cex = 0.6, hang = -1)
+```
+
+From the dendrogram, it appears that sites in Santa Barbara County streams can be divided into four groups, or clusters: Sites DV01 and BC02 appear to be quite different in their stream chemistry from both each other and all of the other sites. Sites AT07, MC06, SP02, GV01, AB00, and MC00 appear similar in their concentrations of water chemistry parameters to each other, as well as sites TO02, RS02, ON02, and RG01. Some of these differences likely arise in concentrations of nutrients tested by the SBC LTER, with sites DV01 and BC02 either having abnormally high or low concentrations of one or all water chemistry parameters. This dendrogram indicates that the two larger clusters of streams should have similar concentrations of parameters to each other, and likely are either similar order streams or are closer geographically. Further analysis should be conducted to determine why each of these sites are similar or different from one another in their water chemistry.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

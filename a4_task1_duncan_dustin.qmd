@@ -1,0 +1,129 @@
+---
+title: "ESM 244 Assignment 4"
+author: "Dustin Duncan"
+format: 
+  html:
+    code-fold: true
+    toc: true
+    number-sections: true
+    embed-resources: true
+editor: visual
+execute:
+  echo: true
+  message: false
+  warning: false
+---
+
+![Image obtained from Wellness Garage Lifestyle Medicine Clinic](assignment_4_photo_fruits_veggies.jpeg){fig-align="center"}
+
+## Overview:
+
+The goal of this analysis was to conduct a principal components analysis on macronutrient information for fruits, vegetables, legumes, grains to identify potential correlations and visualize relationships between either the food classes themselves or between different nutrients across each food class.
+
+### Analysis:
+
+The goal of this analysis was to determine whether there are correlated macronutrients in fruits, vegetables, legumes, and grains. We first loaded food-group nutrient data from the U.S. Department of Agriculture, Agricultural Research Service. In order to conduct the PCA, we filtered the data to include only the food groups and nutrients to be studied, as well as removed all NA values. We then conducted a principal components analysis to identify potential relationships and visualize correlations between macronutrients and food classes. All pseudocode and steps are included within code chunks.
+
+### Citations:
+
+U.S. Department of Agriculture, Agricultural Research Service. FoodData Central, 2019. Accessed 03/14/2024. [fdc.nal.usda.gov](fdc.nal.usda.gov).
+
+### Packages Used:
+
+```{r}
+#| message: false
+#| warning: false
+rm(list = ls())
+library(tidyverse)
+library(here)
+library(ggfortify)
+```
+
+## Principal Components Analysis (PCA)
+
+### Loading and Preparing Data
+
+```{r}
+#| message: false 
+#| warning: false
+nut <- read_csv(here::here("data", "usda_nutrients.csv")) %>% 
+  janitor::clean_names() 
+# view(unique(nut$food_group))
+# 25 different food groups included, and 39 variables for different nutrients
+
+## PCA requires continuous numeric data with no NA's, So we're going to drop the NA's and verify that columns are numeric 
+
+nut_clean <- nut %>% 
+  # Selecting out these variables because they're characters and wont help with PCA
+  select(!c(common_name, mfg_name, scientific_name)) %>% 
+  # Pivoting longer to obtain one row of 'names' for each food class' nutrient and its associated value
+  pivot_longer(names_to = 'name', values_to = 'value', where(is.numeric)) %>%
+  # Filtering out to select a subset of food groups
+  filter(food_group == "Fruits and Fruit Juices" 
+         | food_group == "Vegetables and Vegetable Products" 
+         | food_group == "Legumes and Legume Products"  
+         | food_group == "Cereal Grains and Pasta") %>% 
+  # Getting rid of 'usrda' (United States recommended daily amount) and 'id' data because they don't indicate anything about the foods themselves
+  mutate(name = if_else(str_detect(name, "usrda"), NA, name)) %>% 
+  mutate(name = ifelse(str_detect(name, "id"), NA, name)) %>% 
+  # Getting rid of NA's left over from previous operation
+  filter(name != "NA") %>%
+#   # Filtering to obtain only the macronutrients and calories
+  filter(name == "carb_g" | name == "fat_g" | name == "fiber_g" | name == "protein_g" | name == "sugar_g" | name == "energy_kcal") %>% 
+  mutate(food_group = case_when(
+    food_group == "Fruits and Fruit Juices" ~ "Fruits",
+    food_group == "Vegetables and Vegetable Products" ~ "Vegetables",
+    food_group == "Legumes and Legume Products" ~ "Legumes",
+    food_group == "Cereal Grains and Pasta" ~ "Grains"
+  )) %>% 
+  # PCA does not need normality, but to conduct a PCA we need to remove NA values
+  drop_na() 
+
+# After cleaning and creating graph, we're going to move back to a wider format to conduct our PCA 
+nut2 <- nut_clean %>% 
+  pivot_wider(names_from = "name", values_from = "value") %>% 
+  rename(Fat = fat_g, Carbs = carb_g, Protein = protein_g, Calories = energy_kcal, Fiber = fiber_g, Sugar = sugar_g)
+```
+
+### Conducting PCA
+
+```{r}
+nut_pca <- nut2 %>% 
+  # selecting only numeric columns for our PCA
+  select(where(is.numeric)) %>% 
+  # Scaling to ensure that all nutrients have a mean of 0 and standard deviation of 1
+  prcomp(scale = TRUE)
+
+# View the rotation to see the loadings from nut_pca
+knitr::kable(nut_pca$rotation, caption = "Macronutrient Loadings from PCA")
+# 6 Principal components, with calories contributing the most to PC1, and fat contributing the most to PC2
+
+
+```
+
+We can see that our PCA identified 6 principal components, with calories contributing the most to PC1, and sugar contributing the most negative correlation to both PC2 and PC3. It is important to note that PC1 contains relatively high values for all variables except sugar, indicating that the variation in most variables aside from sugar is well explained by principal component one. The variability in sugar appears to be explained as it relates to other macronutrients primarily by PC2.
+
+### Biplot of PCA Results
+
+```{r, fig.width=8}
+autoplot(nut_pca,
+     	data = nut2,
+     	loadings = TRUE,
+     	colour = 'food_group',
+     	fill = 'food_group',
+     	alpha = 0.5,
+     	shape = 21,
+     	loadings.label = TRUE,
+     	loadings.colour = "black",
+     	loadings.label.colour = "black",
+     	loadings.label.vjust = -0.5,
+     	loadings.label.hjust = -0.15
+     	) +
+  scale_color_manual(values = c('red2', 'tan', 'yellowgreen', 'darkgreen', 'lightblue')) +
+  scale_fill_manual(values = c('red2', 'tan', 'yellowgreen', 'darkgreen', 'lightblue')) +
+  theme_bw() +
+  labs(color = "Food Group", fill = "Food Group", caption = "") +
+  ggtitle("Biplot of Nutrient Data by Food Group")
+```
+
+This Biplot shows that macronutrients are all correlated with each other to some degree, with fiber and protein being the most correlated to overall caloric content, and fat and sugar being the least correlated with each other. In addition, it appears that fruits typically have higher amounts of sugar, and legumes tend to have higher amounts of protein, fat and fiber. Grains also tend to have higher amounts of carbs, fiber, and calories. While these food groups appear to have high amounts of specific macronutrients, it is important to note that each food group contains observations within each macronutrient class, indicating that different types of each food group likely have different macronutrient profiles. Finally, it is important to note that vegetables, while not being strictly clustered to one specific macronutrient, have a few high-value observations in each of the macronutrients, indicating their diverse nature and efficacy as a daily food source.
